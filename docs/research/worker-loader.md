@@ -2,8 +2,13 @@
 
 > Research date: 2026-08-13. Sources: workerd `main` branch source (verbatim quotes from
 > files cited by path), Cloudflare Dynamic Workers docs, Cloudflare blog posts, and the
-> wdl repo (github.com/wdl-dev/wdl). This mechanism is the heart of the lasso runner —
-> read this before touching the runner or loader worker.
+> wdl repo (github.com/wdl-dev/wdl).
+>
+> **Status note (2026-08-14):** the design pivoted away from `workerLoader` (owner
+> direction; see D2 in docs/10-decisions.md) to process-per-worker with static
+> config. This report is retained as the record of the rejected path and because
+> §2–§3 (Fetcher `scheduled()`/`queue()` dispatch, `service_binding_extra_handlers`)
+> remain load-bearing facts for the harness worker's event dispatch.
 
 ## 1. The `workerLoader` binding and the JS API
 

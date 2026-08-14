@@ -124,8 +124,8 @@ per-process heap caps are the backstops.
 ## D6 — Go for services, TypeScript for Workers-ecosystem code
 
 **Context:** Go: single-binary services, first-class k8s clients, easy static
-distroless images. TS: the loader *must* be a worker; binding classes and CLI live in
-the Workers/wrangler ecosystem.
+distroless images. TS: the harness *must* be a worker; the CLI lives in the
+Workers/wrangler ecosystem.
 **Rejected:** Rust everywhere (fine choice, smaller agent familiarity, no ecosystem
 pull for the CLI); Node for gate/gateway (weaker fit for the proxy/scheduler and for
 low-RSS homelab targets).
