@@ -48,7 +48,8 @@ development and as proof the platform degrades gracefully without the k8s API.
   snapshot (emptyDir) so cold starts don't depend on gate being up.
 - **Runner pools**: rolling with `maxUnavailable: 0, maxSurge: 1`; preStop = drain
   (readiness off → gateway stops routing within its health interval → wait for
-  in-flight ≤ 0 or grace timeout). Loaded isolates are cache — nothing to migrate.
+  in-flight ≤ 0 or grace timeout, cascading SIGTERM to child worker processes).
+  Worker processes are cache — they respawn lazily on the new pod.
 - **do pool**: single replica v1; update = brief DO unavailability window
   (`Recreate`-style, documented). In-flight object state is on the PVC; alarms
   catch up on start. v2's lease design removes the window.
@@ -70,7 +71,7 @@ Narrow client of the k8s API (in-cluster config), all objects labeled
    the namespace there via the route feed. Deleting the marker drains and removes.
 2. **Pool scaling (v1.5)**: scale pool Deployments between min/max on gateway
    concurrency metrics (simple target-tracking; no activator, floor ≥ 1).
-3. **Health actions**: a pod failing loader health repeatedly gets deleted (kubelet
+3. **Health actions**: a pod failing supervisor health repeatedly gets deleted (kubelet
    reschedules) — after supervisor-local recovery has already been tried.
 4. **Drift**: on boot and periodically, reconcile expected pools vs live Deployments
    (recreate missing, adopt labeled strays, never touch unlabeled objects).
@@ -80,7 +81,11 @@ core function.
 
 ## Resource footprint (target)
 
-Idle platform (2 gateway, 1 gate, 2 user runners, 1 do, 1 data):
-≈ 6 pods, ~400–700 MB RSS total, negligible CPU. Fits a single-node homelab
-comfortably; nothing requires multi-node, and nothing breaks with it except do-pool
-PVC affinity (RWO — StatefulSet handles it).
+Idle platform (2 gateway, 1 gate, 2 user runners, 1 do, 1 data): ≈ 6 pods,
+~300–500 MB RSS before worker processes. Each *warm* worker adds one workerd process
+(baseline RSS to be measured in the M0 spike; budget ~30–60 MB each — the price of
+process-per-worker isolation, bounded by lazy spawn + idle reaping, so only recently
+used workers are resident). Pool memory limits size the resident set: e.g. a 1 GiB
+user pool comfortably keeps ~15–25 warm workers. Fits a single-node homelab; nothing
+requires multi-node, and nothing breaks with it except do-pool PVC affinity (RWO —
+StatefulSet handles it).

@@ -5,11 +5,11 @@ tail workers, the inspector — no native metrics endpoint).
 
 ## Logs & tail (the Workers-native signal)
 
-- **Tail workers are the primary channel.** The loader attaches
-  `tails: [ctx.exports.TailSink({props:{worker}})]` to every loaded worker. The
-  TailSink entrypoint receives structured trace items (console logs, exceptions,
-  request outcomes, subrequest summaries) and forwards batches to gate
-  `/internal/tail`.
+- **Tail workers are the primary channel.** Every per-worker config declares
+  `tails = ["harness"]` on the user worker: the harness worker receives structured
+  trace items (console logs, exceptions, request outcomes, subrequest summaries) via
+  workerd's native tail mechanism and forwards batches to gate `/internal/tail`
+  through its internal-service binding.
 - Gate keeps a **ring buffer per worker** (SQLite table, capped rows + total bytes,
   default 24 h/50 MB) and fans out live sessions: `lasso tail` ↔ gate SSE; the
   wrangler-compat tail endpoint speaks wrangler's protocol.
@@ -25,15 +25,15 @@ tail workers, the inspector — no native metrics endpoint).
 | Component | Key series |
 | --- | --- |
 | gateway | RED per worker: `lasso_requests_total{worker,status}`, latency histograms, in-flight, timeouts, websocket count |
-| supervisor | workerd RSS/CPU, restarts, watchdog drains, bundle cache hit/miss, loaded-isolate estimate |
-| gate | deploys, route-feed clients, envelope builds, cron dispatch outcomes, DB size |
+| supervisor | **per-worker-process RSS/CPU** (`lasso_worker_memory_bytes{worker,version}` etc. — a direct benefit of process-per-worker), spawns/reaps/respawns, cold-start latency histogram, drain durations, bundle cache hit/miss |
+| gate | deploys, route-feed clients, bundle builds, cron dispatch outcomes, DB size |
 | lasso-data | per-API op counts + latency, queue depths/age, DLQ size, storage bytes per namespace |
-| do pool | facet count, alarm fires, storage bytes |
+| do pool | same as supervisor + alarm fires, DO storage bytes |
 
 All components ship `/metrics`; the chart includes optional ServiceMonitors and a
-starter Grafana dashboard (per-worker RED + platform health). Per-request CPU time is
-**not available** (OSS limitation) — wall time and workerd process CPU are what we
-have; documented.
+starter Grafana dashboard (per-worker RED + memory + platform health). Per-*request*
+CPU time is **not available** (OSS limitation) — but per-*worker* CPU/memory now is,
+via procfs on each child process; documented.
 
 ## Errors & status
 
@@ -43,12 +43,13 @@ have; documented.
   `lasso tail --pretty` using the uploaded sourcemap module).
 - `lasso platform status`: gate DB health, pool readiness, data service health,
   workerd version + pinned compat date, route-feed lag.
-- Debugging escape hatch (dev clusters only, off by default): supervisor can expose
-  workerd's `--inspector-addr` behind a port-forward for Chrome DevTools profiling of
-  the loader; never enabled for user pools in normal operation.
+- Debugging escape hatch (dev clusters only, off by default): the supervisor can
+  start a specific worker's process with `--inspector-addr` behind a port-forward for
+  Chrome DevTools profiling — per-worker, on demand (`lasso debug <worker>`), another
+  direct benefit of process-per-worker; never enabled in normal operation.
 
 ## Tracing (post-v1)
 
-OpenTelemetry spans gateway→loader→binding stubs→data with W3C traceparent
+OpenTelemetry spans gateway→supervisor→worker→data with W3C traceparent
 propagated on internal hops (the header contract reserves it now). Not in v1; the
 tail pipeline covers most homelab debugging needs.

@@ -18,17 +18,20 @@ execute each work package independently. The platform's working codename is **la
 
 One Helm install brings up six components: **lasso-gate** (Go control plane: SQLite +
 content-addressed bundle store, platform API, wrangler-compatible API, cron scheduler,
-auth), **lasso-gateway** (Go ingress proxy: hostname → worker routing from an
-SSE-fed route table, timeouts, header hygiene), **runner pools** (pods running a
-custom Go **supervisor** wrapping a pinned stock **workerd** process, mirroring
-Cloudflare's production supervisor/sandbox split), a **do pool** (Durable Objects via
-workerd facets with SQLite-on-PVC storage), and **lasso-data** (Go storage backends
-for KV/R2/D1/queues). Deploys never touch the Kubernetes API: the CLI uploads an
-immutable version to gate, the route feed flips the active pointer, and the next
-request dynamically loads the new code into a running workerd via its `workerLoader`
-binding — live in under two seconds, isolate cold start in milliseconds. Kubernetes is
-the substrate; the platform manages itself on top of it (health, memory watchdogs,
-process recycling, and — optionally, with RBAC — dedicated per-tenant runner pools).
+auth), **lasso-gateway** (Go ingress proxy: hostname → worker routing from an SSE-fed
+route table, timeouts, header hygiene), **runner pools** (pods where a custom Go
+**supervisor** manages a fleet of pinned stock **workerd** processes — one process per
+active worker version, statically configured, lazily spawned, idle-reaped — mirroring
+Cloudflare's production supervisor/runtime split with their isolate lifecycle mapped
+onto processes), a **do pool** (workers with Durable Objects, native workerd DO
+namespaces with SQLite-on-PVC storage), and **lasso-data** (Go storage backends
+speaking workerd's native KV/R2/D1/queue/cache binding protocols). Deploys never touch
+the Kubernetes API: the CLI uploads an immutable version to gate, the route feed
+announces it, and supervisors spawn the new version's process, flip routing, and drain
+the old one — per-worker blue-green, live in under two seconds, no other worker
+disturbed. Kubernetes is the substrate; the platform manages itself on top of it
+(health, memory watchdogs, process recycling, and — optionally, with RBAC — dedicated
+per-tenant runner pools).
 
 ## Reading order
 
@@ -50,17 +53,20 @@ process recycling, and — optionally, with RBAC — dedicated per-tenant runner
 ## Why these are the load-bearing facts
 
 - workerd ships the entire Workers API surface but **no storage, no limits, no
-  control plane** — bindings are client shims pointed at services you provide.
-- workerd's **`workerLoader`** binding (the OSS analog of Workers for Platforms'
-  dispatch) loads complete workers at runtime — so deploys don't restart anything.
-  It's experimental, so the platform pins workerd exactly and gates every upgrade
-  behind a conformance suite.
+  control plane** — bindings are client shims pointed at services you provide, and
+  lasso-data provides them, speaking the same wire protocols production does.
+- Cloudflare's runtime creates isolates lazily, evicts them under pressure, and
+  hard-limits them — via proprietary machinery OSS workerd doesn't ship. The faithful
+  OSS translation is the **process**: one workerd process per worker version, lazily
+  spawned, idle-reaped, heap-capped, replaced on deploy. That's this design, and it's
+  also what Cloudflare themselves do when they need enforceable limits.
 - workerd is **"not a hardened sandbox"** (their words): trust boundaries are process
-  boundaries. The default install is one shared runner pool for one household;
-  dedicated pools (and gVisor) are configuration away.
-- Cloudflare's own production architecture — privileged supervisor, deprivileged
-  runtime, immutable versions, pull-through code caches — is documented enough to
-  imitate honestly at homelab scale, and this plan does.
+  boundaries — which process-per-worker satisfies by construction, even inside the
+  shared pool.
+- The platform pins workerd exactly and gates every upgrade behind a conformance
+  suite, because the binding wire protocols and the two remaining experimental
+  dependencies (cron/queue dispatch, DO disk storage) sit outside compat-date
+  guarantees.
 
 ## What this is not
 

@@ -81,7 +81,7 @@ stores.
 ```
 GET  /internal/bundles/:version_id          envelope (built on demand, cached; secrets decrypted here)
 GET  /internal/routefeed                    SSE: full snapshot + deltas {routes, deployments, pools}
-POST /internal/tail                         tail event ingest from loaders
+POST /internal/tail                         tail event ingest from harness workers
 POST /internal/dispatch-callback            cron/queue outcome reporting
 ```
 
